@@ -29,6 +29,7 @@ object Main {
       new TokenSequence2FeatureSequence() // トークンを ID にマッピング (withBigrams 版もある)
     ).asJava)
 
+    // モデルのファイルが存在する場合はそれを利用、存在しない場合は新規に学習
     val model = if(conf.model.exists()) {
       println("loading existing model")
       ParallelTopicModel.read(conf.model)
@@ -46,12 +47,12 @@ object Main {
       model.addInstances(instances)
       model.estimate()
       val t1 = System.currentTimeMillis()
-      println(f"${t1-t0}%,dms training finish")
+      println(f"${t1 - t0}%,dms training finish")
 
       // モデルの保存
       model.write(conf.model)
 
-      // 学習に使用した各ドキュメントの単語を
+      // 学習に使用した各ドキュメントの単語が所属するらしきトピックを出力
       println("WORD TO TOPIC FOR DOCUMENTS ----")
       val corpus = model.getAlphabet
       model.getData.asScala.foreach { doc =>
@@ -72,7 +73,7 @@ object Main {
 
     // トピックごとに特徴語を出力
     println("FEATURED WORDS FOR TOPICS ----")
-    println("ID: PRBBL WORDS")
+    println("ID: PROB  WORDS")
     val sortedWords = model.getSortedWords
     val topicProbabilities = model.getTopicProbabilities(0)
     for(i <- 0 until sortedWords.size()) {
@@ -213,6 +214,7 @@ object Main {
       }
     case src :: rest if !src.startsWith("-") =>
       parse(rest).copy(train = new File(src))
+    case ("-h" | "--help") :: _ => usage()
     case unsupported :: _ => usage(s"unsupported option: $unsupported")
     case Nil => Config()
   }
@@ -227,6 +229,19 @@ object Main {
     if(errorMessage.nonEmpty) {
       System.err.println(s"ERROR: $errorMessage")
     }
+    System.err.println(
+      s"""USAGE: scala ${getClass.getName.dropRight(1)} {OPTIONS} [train_file]
+        |OPTIONS:
+        |  -t, --topics [num] ............. topic number (default 10)
+        |  -i, --iterations [num] ......... iteration count (default 1000)
+        |  -a, --alpha [float] ............ sum of alpha values of all topics (default topic num)
+        |  -b, --beta [float] ............. beta value (default ${ParallelTopicModel.DEFAULT_BETA})
+        |  -T, --threads [num] ............ threads to exec (default 1)
+        |  -p, --predict [predict_file] ... file that contains docs to predict topic
+        |  -h, --help ..................... show this message
+        |  [train_file] ................... REQUIRED file that contains docs to train model
+        |The file [train_file] and [predict_file] should contain a document for its line.
+        |""".stripMargin)
     System.exit(1)
     throw new Exception("exit")
   }
