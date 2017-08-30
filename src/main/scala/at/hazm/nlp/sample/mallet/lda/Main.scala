@@ -1,19 +1,13 @@
 package at.hazm.nlp.sample.mallet.lda
 
-import java.io.{File, StringReader}
-import java.text.Normalizer
+import java.io.File
 
-import cc.mallet.extract.StringTokenization
 import cc.mallet.pipe._
 import cc.mallet.pipe.iterator.SimpleFileLineIterator
 import cc.mallet.topics.ParallelTopicModel
-import cc.mallet.types.{FeatureSequence, Instance, InstanceList}
-import org.apache.lucene.analysis.tokenattributes.CharTermAttribute
-import org.codelibs.neologd.ipadic.lucene.analysis.ja.JapaneseTokenizer
-import org.codelibs.neologd.ipadic.lucene.analysis.ja.tokenattributes.{BaseFormAttribute, PartOfSpeechAttribute}
+import cc.mallet.types.{FeatureSequence, InstanceList}
 
 import scala.collection.JavaConverters._
-import scala.collection.mutable
 import scala.util.{Failure, Success, Try}
 
 object Main {
@@ -24,8 +18,8 @@ object Main {
 
     // 学習用のインスタンス (文書) とパイプ (変換処理) を作成
     val pipes = new SerialPipes(Seq(
-      new Input2CharSequence("UTF-8"), // ファイル入力からの文書読み込みを想定
-      new Japanese2TokenSequence(), // 形態素解析によるトークン化
+      new Input2CharSequence("UTF-8"), // ファイルからの文書読み込み想定
+      new Japanese2TokenSequence(), // 自前の形態素解析によるトークン化
       new TokenSequence2FeatureSequence() // トークンを ID にマッピング (withBigrams 版もある)
     ).asJava)
 
@@ -105,59 +99,15 @@ object Main {
   }
 
   /**
-    * 日本語の形態素解析 Kuromoji + NEologd を使用した Pipe。
+    * 動作設定。
+    * @param train 学習データファイル
+    * @param topics トピック数 K
+    * @param alpha ハイパーパラメータ α
+    * @param beta ハイパーパラメータ β
+    * @param iterations イテレーション回数
+    * @param threads 実行スレッド数
+    * @param predict 予測データファイル
     */
-  private[this] class Japanese2TokenSequence() extends Pipe with Serializable {
-    override def pipe(carrier:Instance):Instance = {
-      val text = carrier.getData.asInstanceOf[CharSequence].toString
-      val ts = tokenize(text).foldLeft(new StringTokenization(text)) { case (tokens, token) =>
-        tokens.add(token)
-        tokens
-      }
-      carrier.setData(ts)
-      carrier
-    }
-  }
-
-  /**
-    * 指定された文字列を Kuromoji + NEologd で形態素解析します。
-    *
-    * @param text 形態素解析する文字列
-    * @return 処理結果
-    */
-  private[this] def tokenize(text:String):Seq[String] = {
-    type 単語 = String
-    type 品詞 = String
-
-    // 半角/全角と大文字/小文字の統一
-    def normalize(text:String):String = Normalizer.normalize(text, Normalizer.Form.NFKC).toUpperCase
-
-    val tokenizer = new JapaneseTokenizer(null, true, JapaneseTokenizer.Mode.NORMAL)
-    tokenizer.setReader(new StringReader(normalize(text)))
-    tokenizer.reset()
-
-    // 形態素に分解
-    val buffer = mutable.Buffer[(単語, 品詞)]()
-    while(tokenizer.incrementToken()) {
-      val term = Option(tokenizer.getAttribute(classOf[BaseFormAttribute]).getBaseForm).getOrElse(
-        tokenizer.getAttribute(classOf[CharTermAttribute]).toString
-      )
-      val pos = tokenizer.getAttribute(classOf[PartOfSpeechAttribute]).getPartOfSpeech.split("-").head
-      buffer.append((term, pos))
-    }
-    tokenizer.close()
-
-    // 前の単語の否定を連結
-    buffer.indices.flatMap { i =>
-      if(i + 1 == buffer.length) Some(buffer(i)._1) else (buffer(i), buffer(i + 1)) match {
-        case ((term, "形容詞" | "動詞"), ("ない" | "なかっ", _)) => Some(s"${term}ない")
-        case (("ない" | "なかっ", _), _) => None
-        case ((term, "名詞" | "動詞" | "形容詞"), _) => Some(term)
-        case _ => None
-      }
-    }.toList
-  }
-
   case class Config(train:File = new File("train.txt"), topics:Int = 10, alpha:Double = -1.0, beta:Double = ParallelTopicModel.DEFAULT_BETA, iterations:Int = 1000, threads:Int = 1, predict:Option[File] = None) {
     private[this] def basename:String = {
       val i = train.getName.lastIndexOf('.')
